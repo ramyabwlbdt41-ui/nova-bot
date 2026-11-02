@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: nova-ai-bot
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: AI_PROVIDER
+        value: gemini
+      - key: AI_KEY
+        sync: false
