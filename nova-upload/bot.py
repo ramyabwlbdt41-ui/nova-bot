@@ -35,6 +35,7 @@ from telegram.ext import (
 import ai
 import config
 import keyboards as kb
+import media
 from config import TOKEN
 from db import DB
 
@@ -217,6 +218,26 @@ async def cmd_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(config.IMAGE_MENU, reply_markup=kb.back_home())
 
 
+async def cmd_song(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _cmd_media(update, context, "song")
+
+
+async def cmd_nasheed(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _cmd_media(update, context, "nasheed")
+
+
+async def cmd_podcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _cmd_media(update, context, "podcast")
+
+
+async def _cmd_media(update: Update, context: ContextTypes.DEFAULT_TYPE, kind: str):
+    query = " ".join(context.args).strip()
+    if not query:
+        await update.message.reply_text(config.MEDIA_HINT)
+        return
+    await _handle_media(update.message, context, query, kind)
+
+
 async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """لعرض رقم الحساب — لضبط ADMIN_IDS"""
     u = update.effective_user
@@ -372,6 +393,14 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     elif data == "m:image":
         await show(config.IMAGE_MENU, kb.back_home())
+    elif data == "m:media":
+        await show(config.MEDIA_MENU, kb.back_home())
+    elif data.startswith("mdl:"):
+        try:
+            idx = int(data.split(":", 1)[1])
+        except ValueError:
+            return
+        await _send_media(update, context, idx)
     elif data == "m:mode":
         await show(config.MODE_MENU.format(current=mode_label(row["mode"])), kb.modes(row["mode"]))
     elif data == "m:ideas":
@@ -500,10 +529,18 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if is_image:
         await _handle_image(update, context, text, row)
-    else:
-        await _handle_chat(
-            context, update.effective_chat.id, u.id, text, row, update.message
-        )
+        return
+
+    # 🎵 طلب نشيد/أغنية/بودكاست بالكلام العادي
+    if media.available():
+        media_query, media_kind = media.detect(text)
+        if media_query:
+            await _handle_media(update.message, context, media_query, media_kind)
+            return
+
+    await _handle_chat(
+        context, update.effective_chat.id, u.id, text, row, update.message
+    )
 
 
 async def _handle_chat(context, chat_id, user_id, text, row, message=None):
@@ -621,6 +658,84 @@ async def _handle_image(update, context, text, row):
     await _replace(notice, None)
 
 
+async def _handle_media(message, context, query: str, kind: str):
+    """بحث عن مقطع صوتي وعرض النتائج كأزرار"""
+    label = config.MEDIA_LABELS.get(kind, "🎵")
+    notice = await message.reply_text(
+        f"{label} <b>أبحث عن:</b> {html.escape(query)}\n\n"
+        "<blockquote>لحظات…</blockquote>"
+    )
+    try:
+        await context.bot.send_chat_action(message.chat_id, ChatAction.TYPING)
+    except TelegramError:
+        pass
+
+    results = await media.search(query)
+    if not results:
+        await _replace(
+            notice,
+            "😕 <b>ما لقيت نتائج</b>\n\n<blockquote>جرّب كلمات أقل أو أبسط.</blockquote>",
+            kb.error_menu(),
+        )
+        return
+
+    context.user_data["media"] = results
+    context.user_data["media_kind"] = kind
+
+    lines = [f"{label} <b>نتائج البحث</b>", "━━━━━━━━━━━━━━", ""]
+    for i, item in enumerate(results, 1):
+        dur = media.fmt_duration(item.get("duration"))
+        extra = f" · <i>{dur}</i>" if dur else ""
+        lines.append(f"<b>{i}.</b> {html.escape((item.get('title') or '')[:80])}{extra}")
+    lines += ["", "<blockquote>اضغط على الرقم لتحميل الصوت 🎧</blockquote>"]
+    await _replace(notice, "\n".join(lines), kb.media_results(results))
+
+
+async def _send_media(update, context, index: int):
+    """تحميل النتيجة المختارة وإرسالها كملف صوتي"""
+    q = update.callback_query
+    items = context.user_data.get("media") or []
+    if index < 0 or index >= len(items):
+        await q.answer("انتهت النتائج — ابحث من جديد", show_alert=True)
+        return
+
+    uid = update.effective_user.id
+    if db.today_usage(uid) >= config.DAILY_LIMIT:
+        await q.answer("وصلت للحد اليومي", show_alert=True)
+        return
+
+    item = items[index]
+    try:
+        await q.answer("⏳ جاري تحميل الصوت…")
+    except TelegramError:
+        pass
+    try:
+        await context.bot.send_chat_action(update.effective_chat.id, ChatAction.UPLOAD_VOICE)
+    except TelegramError:
+        pass
+
+    path = await media.download(item.get("url", ""), media.key_from_url(item.get("url", "")))
+    if not path:
+        await q.message.reply_text(
+            "🔗 <b>ما قدرت أنزّل الملف</b>\n\n"
+            f"<blockquote>افتح الرابط مباشرة:\n{item.get('url', '')}</blockquote>"
+        )
+        return
+
+    try:
+        with open(path, "rb") as f:
+            await q.message.reply_audio(
+                audio=f,
+                title=(item.get("title") or "مقطع")[:64],
+                performer=(item.get("uploader") or config.BOT_NAME)[:64],
+                duration=int(item.get("duration") or 0),
+            )
+        db.consume(uid, config.DAILY_LIMIT)
+    except TelegramError as e:
+        log.warning("audio send: %s", e)
+        await q.message.reply_text(f"🔗 {item.get('url', '')}")
+
+
 async def _slow_notice(notice):
     """بعد 8 ثوانٍ من الانتظار يُظهر رسالة طابور بدل الصمت"""
     try:
@@ -694,6 +809,9 @@ def build_app() -> Application:
     app.add_handler(CommandHandler("new", cmd_new))
     app.add_handler(CommandHandler("mode", cmd_mode))
     app.add_handler(CommandHandler("image", cmd_image))
+    app.add_handler(CommandHandler("song", cmd_song))
+    app.add_handler(CommandHandler("nasheed", cmd_nasheed))
+    app.add_handler(CommandHandler("podcast", cmd_podcast))
     app.add_handler(CommandHandler("id", cmd_id))
     app.add_handler(CommandHandler("admin", cmd_admin))
     app.add_handler(CommandHandler("ban", cmd_ban))
