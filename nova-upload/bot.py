@@ -4,6 +4,7 @@
 import asyncio
 import html
 import http.server
+import json
 import logging
 import os
 import random
@@ -714,7 +715,15 @@ async def _send_media(update, context, index: int):
     except TelegramError:
         pass
 
+    note = await q.message.reply_text(
+        "⏳ <b>جاري تحميل الصوت…</b>\n\n<blockquote>قد يأخذ نصف دقيقة.</blockquote>"
+    )
     path = await media.download(item.get("url", ""), media.key_from_url(item.get("url", "")))
+    try:
+        await note.delete()
+    except TelegramError:
+        pass
+
     if not path:
         await q.message.reply_text(
             "🔗 <b>ما قدرت أنزّل الملف</b>\n\n"
@@ -726,6 +735,7 @@ async def _send_media(update, context, index: int):
         with open(path, "rb") as f:
             await q.message.reply_audio(
                 audio=f,
+                caption=f"🔗 {item.get('url', '')}",
                 title=(item.get("title") or "مقطع")[:64],
                 performer=(item.get("uploader") or config.BOT_NAME)[:64],
                 duration=int(item.get("duration") or 0),
@@ -833,13 +843,29 @@ def start_health_server():
         return
 
     class Handler(http.server.BaseHTTPRequestHandler):
-        def do_GET(self):
-            body = b"OK"
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
+        def _send(self, code: int, body: bytes, ctype: str = "text/plain; charset=utf-8"):
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+
+        def do_GET(self):
+            from urllib.parse import parse_qs, urlparse
+
+            parsed = urlparse(self.path)
+            if parsed.path == "/diag":
+                key = (parse_qs(parsed.query).get("k") or [""])[0]
+                if key != config.DIAG_KEY:
+                    self._send(404, b"not found")
+                    return
+                try:
+                    payload = json.dumps(media.diagnose(), ensure_ascii=False).encode("utf-8")
+                except Exception as e:              # pragma: no cover
+                    payload = json.dumps({"error": str(e)}).encode("utf-8")
+                self._send(200, payload, "application/json; charset=utf-8")
+                return
+            self._send(200, b"OK")
 
         def log_message(self, *args):
             pass
