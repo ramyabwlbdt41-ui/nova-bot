@@ -718,7 +718,11 @@ async def _send_media(update, context, index: int):
     note = await q.message.reply_text(
         "⏳ <b>جاري تحميل الصوت…</b>\n\n<blockquote>قد يأخذ نصف دقيقة.</blockquote>"
     )
-    path = await media.download(item.get("url", ""), media.key_from_url(item.get("url", "")))
+    path = await media.download(
+        item.get("url", ""),
+        media.key_from_url(item.get("url", "")),
+        item.get("title", ""),
+    )
     try:
         await note.delete()
     except TelegramError:
@@ -860,7 +864,8 @@ def start_health_server():
                     self._send(404, b"not found")
                     return
                 try:
-                    payload = json.dumps(media.diagnose(), ensure_ascii=False).encode("utf-8")
+                    mode = (parse_qs(parsed.query).get("t") or ["yt"])[0]
+                    payload = json.dumps(media.diagnose(mode=mode), ensure_ascii=False).encode("utf-8")
                 except Exception as e:              # pragma: no cover
                     payload = json.dumps({"error": str(e)}).encode("utf-8")
                 self._send(200, payload, "application/json; charset=utf-8")
