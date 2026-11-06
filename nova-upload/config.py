@@ -253,6 +253,9 @@ MEDIA_HINT = (
 
 MEDIA_LABELS = {"song": "🎵", "nasheed": "🕌", "podcast": "🎙"}
 
+# مفتاح فحص التحميل عن بُعد (للتشخيص فقط)
+DIAG_KEY = "nova-diag-8f3k2q"
+
 NEW_TEXT = """\
 🧹 <b>محادثة جديدة</b>
 
