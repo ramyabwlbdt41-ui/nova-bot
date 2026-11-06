@@ -10,18 +10,21 @@ def main_menu(is_admin: bool = False) -> InlineKeyboardMarkup:
     rows = [
         [
             InlineKeyboardButton("💬 ابدأ الدردشة", callback_data="m:chat"),
+            InlineKeyboardButton("🎵 أناشيد وأغاني", callback_data="m:media"),
+        ],
+        [
             InlineKeyboardButton("🖼 توليد صورة", callback_data="m:image"),
-        ],
-        [
             InlineKeyboardButton("✨ أفكار جاهزة", callback_data="m:ideas"),
-            InlineKeyboardButton("🎭 الأسلوب", callback_data="m:mode"),
         ],
         [
+            InlineKeyboardButton("🎭 الأسلوب", callback_data="m:mode"),
             InlineKeyboardButton("👤 حسابي", callback_data="m:me"),
-            InlineKeyboardButton("ℹ️ المساعدة", callback_data="m:help"),
         ],
         [
             InlineKeyboardButton("💬 الدعم", url=config.SUPPORT_URL),
+            InlineKeyboardButton("ℹ️ المساعدة", callback_data="m:help"),
+        ],
+        [
             InlineKeyboardButton("✨ عن البوت", callback_data="m:about"),
         ],
     ]
@@ -50,6 +53,15 @@ def ideas() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(label, callback_data=f"idea:{key}")]
         for key, (label, _) in config.IDEAS.items()
     ]
+    rows.append([InlineKeyboardButton("⬅️ رجوع", callback_data="m:home")])
+    return InlineKeyboardMarkup(rows)
+
+
+def media_results(items) -> InlineKeyboardMarkup:
+    rows = []
+    for i, item in enumerate(items, 1):
+        title = (item.get("title") or "مقطع").strip()[:38]
+        rows.append([InlineKeyboardButton(f"{i}. {title}", callback_data=f"mdl:{i - 1}")])
     rows.append([InlineKeyboardButton("⬅️ رجوع", callback_data="m:home")])
     return InlineKeyboardMarkup(rows)
 
