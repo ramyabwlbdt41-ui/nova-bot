@@ -687,7 +687,8 @@ async def _handle_media(message, context, query: str, kind: str):
     for i, item in enumerate(results, 1):
         dur = media.fmt_duration(item.get("duration"))
         extra = f" · <i>{dur}</i>" if dur else ""
-        lines.append(f"<b>{i}.</b> {html.escape((item.get('title') or '')[:80])}{extra}")
+        src = "☁️" if item.get("source") == "sc" else "🎬"
+        lines.append(f"{src} <b>{i}.</b> {html.escape((item.get('title') or '')[:80])}{extra}")
     lines += ["", "<blockquote>اضغط على الرقم لتحميل الصوت 🎧</blockquote>"]
     await _replace(notice, "\n".join(lines), kb.media_results(results))
 
