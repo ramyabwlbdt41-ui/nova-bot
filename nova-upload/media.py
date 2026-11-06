@@ -2,8 +2,11 @@
 """🔎 البحث عن أناشيد/أغاني/بودكاست وتحميل الصوت — مجاني وبدون مفاتيح API"""
 
 import asyncio
+import logging
 import os
 import re
+import shutil
+import time
 
 import config
 
@@ -12,15 +15,18 @@ try:
 except Exception:                     # pragma: no cover
     yt_dlp = None
 
+log = logging.getLogger("nova.media")
+
 CACHE_DIR = os.path.join(config.DATA_DIR, "audio")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 MAX_BYTES = 45 * 1024 * 1024          # حد تيليجرام لرفع الملفات
+_CLIENTS = ("android", "ios", "tv", "web_safari", "mweb", "default")
 _BASE = {
     "quiet": True,
     "no_warnings": True,
     "noplaylist": True,
-    "socket_timeout": 20,
+    "socket_timeout": 25,
     "retries": 2,
     "nocheckcertificate": True,
     "geo_bypass": True,
@@ -87,7 +93,7 @@ async def search(query: str, limit: int = 5) -> list:
 
 
 # ================= التحميل =================
-def _download_sync(url: str, key: str):
+def _cached(key: str):
     for name in os.listdir(CACHE_DIR):
         if name.startswith(key + "."):
             path = os.path.join(CACHE_DIR, name)
@@ -96,13 +102,19 @@ def _download_sync(url: str, key: str):
                     return path
             except OSError:
                 pass
+    return None
+
+
+def _download_once(url: str, key: str, client: str):
     opts = dict(_BASE)
     opts.update({
-        "format": "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio/best",
+        "format": "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",
         "outtmpl": os.path.join(CACHE_DIR, key + ".%(ext)s"),
         "max_filesize": MAX_BYTES,
         "prefer_ffmpeg": True,
     })
+    if client != "default":
+        opts["extractor_args"] = {"youtube": {"player_client": [client]}}
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=True)
         path = ydl.prepare_filename(info)
@@ -111,11 +123,68 @@ def _download_sync(url: str, key: str):
     return None
 
 
+def _download_sync(url: str, key: str):
+    cached = _cached(key)
+    if cached:
+        return cached
+
+    last = None
+    for client in _CLIENTS:
+        try:
+            path = _download_once(url, key, client)
+            if path:
+                log.info("media ok client=%s size=%dKB", client, os.path.getsize(path) // 1024)
+                return path
+        except Exception as e:
+            last = e
+            log.warning("media client %s: %s", client, str(e)[:180])
+    log.warning("media failed: %s | last=%s", url, str(last)[:200])
+    return None
+
+
 async def download(url: str, key: str):
     try:
         return await asyncio.to_thread(_download_sync, url, key)
-    except Exception:
+    except Exception as e:
+        log.warning("media download error: %s", e)
         return None
+
+
+# ================= تشخيص عن بُعد =================
+def diagnose(url: str = "https://www.youtube.com/watch?v=cZsfAxlix3I"):
+    out = {
+        "ytdlp": getattr(getattr(yt_dlp, "version", None), "__version__", None),
+        "ffmpeg": shutil.which("ffmpeg") is not None,
+    }
+    try:
+        t = time.time()
+        items = _search_sync("test", 2)
+        out["search"] = {
+            "ok": bool(items),
+            "n": len(items),
+            "sec": round(time.time() - t, 1),
+            "first": (items[0]["title"][:50] if items else ""),
+        }
+    except Exception as e:
+        out["search"] = {"ok": False, "err": repr(e)[:250]}
+
+    key = "diag_" + str(int(time.time()))
+    results = {}
+    for client in _CLIENTS:
+        try:
+            t = time.time()
+            path = _download_once(url, key, client)
+            results[client] = {
+                "ok": bool(path),
+                "sec": round(time.time() - t, 1),
+                "size": (os.path.getsize(path) if path else 0),
+            }
+            if path:
+                break
+        except Exception as e:
+            results[client] = {"ok": False, "err": str(e)[:160]}
+    out["download"] = results
+    return out
 
 
 # ================= كشف النية من النص =================
