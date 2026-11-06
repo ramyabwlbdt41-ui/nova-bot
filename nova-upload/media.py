@@ -201,6 +201,19 @@ def diagnose(url: str = "https://www.youtube.com/watch?v=cZsfAxlix3I", mode: str
         "ytdlp": getattr(getattr(yt_dlp, "version", None), "__version__", None),
         "ffmpeg": shutil.which("ffmpeg") is not None,
     }
+    if mode == "mix":
+        try:
+            t = time.time()
+            items = _search_sync("قمري الشهيد", 5)
+            out["search"] = {
+                "n": len(items),
+                "sec": round(time.time() - t, 1),
+                "items": [{"t": (i["title"] or "")[:45], "src": i.get("source")} for i in items],
+            }
+        except Exception as e:
+            out["error"] = str(e)[:300]
+        return out
+
     if mode == "sc":
         try:
             t = time.time()
