@@ -57,35 +57,64 @@ def fmt_duration(sec) -> str:
 
 
 # ================= البحث =================
-def _search_sync(query: str, limit: int) -> list:
+def _yt_entries(query: str, limit: int) -> list:
+    opts = dict(_BASE)
+    opts.update({"extract_flat": "in_playlist", "skip_download": True})
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(f"ytsearch{limit}:{query}", download=False)
+    out = []
+    for e in (info or {}).get("entries") or []:
+        if not e or not e.get("id"):
+            continue
+        out.append({
+            "title": (e.get("title") or "").strip(),
+            "url": f"https://www.youtube.com/watch?v={e['id']}",
+            "duration": e.get("duration"),
+            "uploader": (e.get("uploader") or e.get("channel") or "").strip(),
+            "source": "yt",
+        })
+    return out
+
+
+def _sc_entries(query: str, limit: int) -> list:
+    opts = dict(_BASE)
+    opts.update({"extract_flat": "in_playlist", "skip_download": True})
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(f"scsearch{limit}:{query}", download=False)
+    out = []
+    for e in (info or {}).get("entries") or []:
+        if not e:
+            continue
+        u = e.get("url") or e.get("webpage_url")
+        if not u:
+            continue
+        out.append({
+            "title": (e.get("title") or "").strip(),
+            "url": u,
+            "duration": e.get("duration"),
+            "uploader": (e.get("uploader") or "").strip(),
+            "source": "sc",
+        })
+    return out
+
+
+def _search_sync(query: str, limit: int = 5) -> list:
     if not available():
         return []
-    for target in (f"ytsearch{limit}:{query}", f"scsearch{limit}:{query}"):
+    items, seen = [], set()
+    for getter in (_yt_entries, _sc_entries):
         try:
-            opts = dict(_BASE)
-            opts.update({"extract_flat": "in_playlist", "skip_download": True})
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(target, download=False)
-            items = []
-            for e in (info or {}).get("entries") or []:
-                if not e:
+            for it in getter(query, limit):
+                key = re.sub(r"[^0-9a-zء-ي]", "", (it.get("title") or "").lower())[:40]
+                if not key or key in seen:
                     continue
-                url = e.get("url") or e.get("webpage_url") or ""
-                if target.startswith("ytsearch") and e.get("id"):
-                    url = f"https://www.youtube.com/watch?v={e['id']}"
-                if not url:
-                    continue
-                items.append({
-                    "title": (e.get("title") or "").strip(),
-                    "url": url,
-                    "duration": e.get("duration"),
-                    "uploader": (e.get("uploader") or e.get("channel") or "").strip(),
-                })
-            if items:
-                return items[:limit]
-        except Exception:
-            continue
-    return []
+                seen.add(key)
+                items.append(it)
+                if len(items) >= limit:
+                    return items
+        except Exception as e:
+            log.warning("search source failed: %s", str(e)[:140])
+    return items
 
 
 async def search(query: str, limit: int = 5) -> list:
@@ -95,7 +124,7 @@ async def search(query: str, limit: int = 5) -> list:
 # ================= التحميل =================
 def _cached(key: str):
     for name in os.listdir(CACHE_DIR):
-        if name.startswith(key + "."):
+        if name.startswith(key):
             path = os.path.join(CACHE_DIR, name)
             try:
                 if os.path.getsize(path) > 1024:
@@ -163,21 +192,6 @@ async def download(url: str, key: str, title: str = ""):
     except Exception as e:
         log.warning("media download error: %s", e)
         return None
-
-
-def _sc_entries(query: str, limit: int = 3) -> list:
-    opts = dict(_BASE)
-    opts.update({"extract_flat": "in_playlist", "skip_download": True})
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(f"scsearch{limit}:{query}", download=False)
-    items = []
-    for e in (info or {}).get("entries") or []:
-        if not e:
-            continue
-        u = e.get("url") or e.get("webpage_url")
-        if u:
-            items.append({"url": u, "title": e.get("title") or ""})
-    return items
 
 
 # ================= تشخيص عن بُعد =================
