@@ -866,7 +866,10 @@ def start_health_server():
                     return
                 try:
                     mode = (parse_qs(parsed.query).get("t") or ["yt"])[0]
-                    payload = json.dumps(media.diagnose(mode=mode), ensure_ascii=False).encode("utf-8")
+                    if mode == "ai":
+                        payload = json.dumps(ai.diag(), ensure_ascii=False).encode("utf-8")
+                    else:
+                        payload = json.dumps(media.diagnose(mode=mode), ensure_ascii=False).encode("utf-8")
                 except Exception as e:              # pragma: no cover
                     payload = json.dumps({"error": str(e)}).encode("utf-8")
                 self._send(200, payload, "application/json; charset=utf-8")
