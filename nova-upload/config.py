@@ -42,7 +42,7 @@ CHANNEL_URL = ""          # ضع رابط قناتك هنا (اتركه فارغ
 KEYLESS = {
     "base": "https://text.pollinations.ai/openai",
     "models": ["openai"],
-    "min_gap": 45,       # ثانية بين كل طلب — حد المزوّد المجاني (1 كل 45 ثانية)
+    "min_gap": 45,       # حد المزوّد البديل: رد واحد كل 45 ثانية
 }
 
 # لو حصلت على مفتاح مجاني ضعه هنا، أو أرسله للبوت بأمر:
@@ -56,7 +56,13 @@ PROVIDERS = {
     ),
     "gemini": (
         "https://generativelanguage.googleapis.com/v1beta/openai/",
-        ["gemini-3.5-flash", "gemini-flash-latest", "gemini-3.8-flash"],
+        [
+            "gemini-3.5-flash",              # الأساسي (الأقوى)
+            "gemini-3.8-flash",
+            "gemini-3.7-flash",
+            "gemini-3.1-flash-lite",
+            "gemini-3.1-flash-lite-preview",
+        ],
     ),
     "openrouter": (
         "https://openrouter.ai/api/v1",
@@ -86,7 +92,7 @@ if not AI_KEY and os.path.exists(_SAVED):
     except Exception:
         pass
 
-AI_TIMEOUT = 90
+AI_TIMEOUT = 45
 AI_MAX_TOKENS = 900
 AI_TEMPERATURE = 0.75
 MEMORY_TURNS = 10         # كم رسالة سابقة يتذكرها البوت
